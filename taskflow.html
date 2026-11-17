@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TaskFlow 團隊任務管理系統</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Toast 通知容器 -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- 登入畫面 -->
+  <section id="login-screen" class="login-screen">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="brand-logo">TF</div>
+        <div>
+          <h1>TaskFlow</h1>
+          <p>團隊任務與協作管理系統</p>
+        </div>
+      </div>
+
+      <form id="login-form" class="login-form">
+        <div class="form-group">
+          <label for="login-username">帳號</label>
+          <input type="text" id="login-username" placeholder="請輸入帳號（預設 admin）" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label for="login-password">密碼</label>
+          <input type="password" id="login-password" placeholder="請輸入密碼（預設 admin123）" required autocomplete="current-password" />
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" id="login-submit-btn">登入系統</button>
+      </form>
+
+      <div class="api-config-box">
+        <button type="button" class="btn-link" id="toggle-api-config">⚙️ 設定 Google Apps Script API 網址</button>
+        <div id="api-config-panel" class="api-config-panel hidden">
+          <label for="api-url-input">GAS Web App 部署網址</label>
+          <input type="url" id="api-url-input" placeholder="https://script.google.com/macros/s/.../exec" />
+          <div class="api-config-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="save-api-url-btn">儲存網址</button>
+            <button type="button" class="btn btn-outline btn-sm" id="test-api-url-btn">測試連線</button>
+          </div>
+          <p id="api-status-text" class="api-status-text"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 主系統畫面 -->
+  <div id="app-shell" class="app-shell hidden">
+    <!-- 頂部導覽列 -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand-mini">
+          <span class="brand-logo-sm">TF</span>
+          <span class="brand-name">TaskFlow</span>
+        </div>
+        <nav class="nav-tabs" id="nav-tabs">
+          <button class="nav-tab active" data-view="kanban">看板檢視</button>
+          <button class="nav-tab" data-view="list">清單檢視</button>
+          <button class="nav-tab hidden" id="nav-admin-tab" data-view="admin">帳號管理</button>
+        </nav>
+      </div>
+
+      <div class="topbar-right">
+        <button class="btn btn-primary btn-sm" id="new-task-btn">+ 新增任務</button>
+
+        <!-- 站內通知鈴鐺 -->
+        <div class="notif-wrapper">
+          <button class="icon-btn" id="notif-bell-btn" title="站內通知">
+            🔔
+            <span id="notif-badge" class="notif-badge hidden">0</span>
+          </button>
+          <div id="notif-dropdown" class="notif-dropdown hidden">
+            <div class="notif-header">
+              <span>站內通知</span>
+              <button type="button" class="btn-link" id="mark-all-read-btn">全部標為已讀</button>
+            </div>
+            <div id="notif-list" class="notif-list"></div>
+          </div>
+        </div>
+
+        <!-- 使用者選單 -->
+        <div class="user-menu-wrapper">
+          <button class="user-pill" id="user-menu-btn">
+            <span class="avatar-circle" id="user-avatar">A</span>
+            <span class="user-pill-info">
+              <strong id="user-display-name">管理員</strong>
+              <small id="user-role-dept">管理員 · 管理部</small>
+            </span>
+          </button>
+          <div id="user-dropdown" class="user-dropdown hidden">
+            <button type="button" id="open-change-pw-btn">🔑 修改我的密碼</button>
+            <button type="button" id="refresh-data-btn">🔄 重新同步資料</button>
+            <button type="button" id="logout-btn" class="danger-text">🚪 登出系統</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- 篩選工具列 -->
+    <section id="filter-bar" class="filter-bar">
+      <div class="filter-group">
+        <input type="search" id="filter-search" class="filter-input" placeholder="搜尋任務名稱、描述或標籤..." />
+        <select id="filter-priority" class="filter-select">
+          <option value="">所有優先級</option>
+          <option value="urgent">🔴 緊急</option>
+          <option value="high">🟠 高</option>
+          <option value="medium">🔵 中</option>
+          <option value="low">⚪ 低</option>
+        </select>
+        <select id="filter-assignee" class="filter-select">
+          <option value="">所有負責人</option>
+        </select>
+        <label class="checkbox-pill">
+          <input type="checkbox" id="filter-only-mine" />
+          <span>只看我的任務</span>
+        </label>
+      </div>
+      <div class="filter-summary" id="filter-summary">共 0 項任務</div>
+    </section>
+
+    <!-- 檢視區域：看板 -->
+    <main id="view-kanban" class="view-container">
+      <div class="kanban-board" id="kanban-board">
+        <!-- 由 app.js 動態渲染 4 個欄位 -->
+      </div>
+    </main>
+
+    <!-- 檢視區域：清單 -->
+    <main id="view-list" class="view-container hidden">
+      <div class="list-card">
+        <table class="task-table">
+          <thead>
+            <tr>
+              <th style="width: 40px;">完成</th>
+              <th>任務名稱</th>
+              <th>狀態</th>
+              <th>優先級</th>
+              <th>負責人</th>
+              <th>部門</th>
+              <th>截止日期</th>
+              <th>子項目</th>
+            </tr>
+          </thead>
+          <tbody id="list-table-body"></tbody>
+        </table>
+      </div>
+    </main>
+
+    <!-- 檢視區域：管理員帳號管理 -->
+    <main id="view-admin" class="view-container hidden">
+      <div class="admin-grid">
+        <div class="admin-card">
+          <h3>新增人員帳號</h3>
+          <form id="admin-create-user-form" class="admin-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label>登入帳號 *</label>
+                <input type="text" id="new-user-username" required placeholder="例如 wang01" />
+              </div>
+              <div class="form-group">
+                <label>初始密碼 *</label>
+                <input type="password" id="new-user-password" required placeholder="至少 6 碼" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>顯示名稱 *</label>
+                <input type="text" id="new-user-display" required placeholder="例如 王小明" />
+              </div>
+              <div class="form-group">
+                <label>Email（接收提醒用）</label>
+                <input type="email" id="new-user-email" placeholder="name@example.com" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>角色權限</label>
+                <select id="new-user-role">
+                  <option value="member">一般成員</option>
+                  <option value="manager">部門主管</option>
+                  <option value="admin">系統管理員</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>所屬部門</label>
+                <input type="text" id="new-user-dept" value="營運部" placeholder="例如 營運部" />
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary">建立帳號</button>
+          </form>
+        </div>
+
+        <div class="admin-card">
+          <h3>現有人員列表</h3>
+          <div class="table-scroll">
+            <table class="task-table">
+              <thead>
+                <tr>
+                  <th>帳號</th>
+                  <th>名稱</th>
+                  <th>角色</th>
+                  <th>部門</th>
+                  <th>Email</th>
+                  <th>狀態</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="admin-users-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 任務詳情 / 新增 / 編輯 Modal -->
+  <div id="task-modal" class="modal-overlay hidden">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h2 id="task-modal-title">新增任務</h2>
+        <button type="button" class="icon-btn" id="close-task-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="task-form" class="task-form">
+          <input type="hidden" id="task-id-input" />
+          <div class="form-group">
+            <label for="task-title-input">任務名稱 *</label>
+            <input type="text" id="task-title-input" required placeholder="輸入任務標題" />
+          </div>
+          <div class="form-group">
+            <label for="task-desc-input">詳細描述</label>
+            <textarea id="task-desc-input" rows="3" placeholder="補充任務說明、目標與注意事項..."></textarea>
+          </div>
+
+          <div class="form-grid-3">
+            <div class="form-group">
+              <label for="task-status-input">狀態</label>
+              <select id="task-status-input">
+                <option value="todo">待辦</option>
+                <option value="in_progress">進行中</option>
+                <option value="review">審核中</option>
+                <option value="done">已完成</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="task-priority-input">優先級</label>
+              <select id="task-priority-input">
+                <option value="urgent">🔴 緊急</option>
+                <option value="high">🟠 高</option>
+                <option value="medium">🔵 中</option>
+                <option value="low">⚪ 低</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="task-assignee-input">負責人</label>
+              <select id="task-assignee-input"></select>
+            </div>
+          </div>
+
+          <div class="form-grid-3">
+            <div class="form-group">
+              <label for="task-dept-input">部門</label>
+              <input type="text" id="task-dept-input" placeholder="例如 營運部" />
+            </div>
+            <div class="form-group">
+              <label for="task-start-input">開始日期</label>
+              <input type="date" id="task-start-input" />
+            </div>
+            <div class="form-group">
+              <label for="task-due-input">截止日期 (Due Date)</label>
+              <input type="date" id="task-due-input" />
+            </div>
+          </div>
+
+          <div class="form-grid-3">
+            <div class="form-group">
+              <label for="task-recurrence-input">重複週期</label>
+              <select id="task-recurrence-input">
+                <option value="none">不重複</option>
+                <option value="daily">每日重複</option>
+                <option value="weekly">每週重複</option>
+                <option value="monthly">每月重複</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="task-tags-input">標籤（逗號分隔）</label>
+              <input type="text" id="task-tags-input" placeholder="例如 採購, 緊急, 行銷" />
+            </div>
+            <div class="form-group">
+              <label for="task-est-hours-input">預估工時 (小時)</label>
+              <input type="number" id="task-est-hours-input" min="0" step="0.5" value="0" />
+            </div>
+          </div>
+
+          <div class="modal-form-actions">
+            <button type="button" class="btn btn-danger hidden" id="archive-task-btn">封存任務</button>
+            <div style="flex:1"></div>
+            <button type="submit" class="btn btn-primary" id="save-task-btn">儲存任務</button>
+          </div>
+        </form>
+
+        <!-- 編輯既有任務時才顯示的協作區塊 -->
+        <div id="task-collab-sections" class="task-collab-sections hidden">
+          <!-- 子任務與核對清單 -->
+          <div class="collab-box">
+            <h4>子任務與核對清單 (Checklist)</h4>
+            <div class="inline-add-row">
+              <select id="subtask-type-select" class="filter-select">
+                <option value="subtask">子任務</option>
+                <option value="checklist">核對項目</option>
+              </select>
+              <input type="text" id="new-subtask-input" placeholder="輸入子任務或核對項目名稱..." />
+              <button type="button" class="btn btn-secondary btn-sm" id="add-subtask-btn">新增</button>
+            </div>
+            <ul id="subtask-list" class="subtask-list"></ul>
+          </div>
+
+          <!-- 檔案附件 -->
+          <div class="collab-box">
+            <h4>檔案附件（Google Drive 上傳 / 外部連結）</h4>
+            <div class="attachment-controls">
+              <label class="btn btn-outline btn-sm file-upload-label">
+                📎 上傳檔案至 Drive
+                <input type="file" id="upload-file-input" hidden />
+              </label>
+              <div class="inline-add-row" style="flex:1;">
+                <input type="text" id="att-link-name" placeholder="連結名稱" />
+                <input type="url" id="att-link-url" placeholder="https://..." />
+                <button type="button" class="btn btn-secondary btn-sm" id="add-att-link-btn">加入連結</button>
+              </div>
+            </div>
+            <ul id="attachment-list" class="attachment-list"></ul>
+          </div>
+
+          <!-- 留言討論與 @標記 -->
+          <div class="collab-box">
+            <h4>團隊討論與留言（支援 @標記 成員）</h4>
+            <div id="mention-chips" class="mention-chips"></div>
+            <div class="inline-add-row">
+              <input type="text" id="new-comment-input" placeholder="輸入留言，可點選上方 @成員 標記提醒..." />
+              <button type="button" class="btn btn-primary btn-sm" id="add-comment-btn">送出留言</button>
+            </div>
+            <div id="comment-list" class="comment-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 修改密碼 Modal -->
+  <div id="password-modal" class="modal-overlay hidden">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2>修改密碼</h2>
+        <button type="button" class="icon-btn" id="close-pw-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="change-pw-form" class="task-form">
+          <div class="form-group">
+            <label>目前密碼</label>
+            <input type="password" id="old-pw-input" required />
+          </div>
+          <div class="form-group">
+            <label>新密碼（至少 6 碼）</label>
+            <input type="password" id="new-pw-input" required minlength="6" />
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">確認修改</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
