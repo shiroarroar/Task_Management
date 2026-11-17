@@ -51,55 +51,94 @@
 
   <!-- 主系統畫面 -->
   <div id="app-shell" class="app-shell hidden">
-    <!-- 頂部導覽列 -->
-    <header class="topbar">
-      <div class="topbar-left">
+    <!-- 側邊導覽列 -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
         <div class="brand-mini">
           <span class="brand-logo-sm">TF</span>
           <span class="brand-name">TaskFlow</span>
         </div>
-        <nav class="nav-tabs" id="nav-tabs">
-          <button class="nav-tab active" data-view="kanban">看板檢視</button>
-          <button class="nav-tab" data-view="list">清單檢視</button>
-          <button class="nav-tab hidden" id="nav-admin-tab" data-view="admin">帳號管理</button>
-        </nav>
+        <button type="button" class="icon-btn mobile-only" id="close-sidebar-btn" title="關閉選單">✕</button>
       </div>
 
-      <div class="topbar-right">
-        <button class="btn btn-primary btn-sm" id="new-task-btn">+ 新增任務</button>
+      <nav class="sidebar-nav" id="nav-tabs">
+        <button class="nav-tab active" data-view="kanban">
+          <span class="nav-icon">📋</span>
+          <span>看板檢視</span>
+        </button>
+        <button class="nav-tab" data-view="list">
+          <span class="nav-icon">📝</span>
+          <span>清單檢視</span>
+        </button>
+        <button class="nav-tab" data-view="gantt">
+          <span class="nav-icon">📅</span>
+          <span>甘特圖 / 時間軸</span>
+        </button>
+        <button class="nav-tab hidden" id="nav-dashboard-tab" data-view="dashboard">
+          <span class="nav-icon">📊</span>
+          <span>主管數據儀表板</span>
+        </button>
+        <button class="nav-tab hidden" id="nav-admin-tab" data-view="admin">
+          <span class="nav-icon">👥</span>
+          <span>帳號管理</span>
+        </button>
+      </nav>
 
-        <!-- 站內通知鈴鐺 -->
-        <div class="notif-wrapper">
-          <button class="icon-btn" id="notif-bell-btn" title="站內通知">
-            🔔
-            <span id="notif-badge" class="notif-badge hidden">0</span>
-          </button>
-          <div id="notif-dropdown" class="notif-dropdown hidden">
-            <div class="notif-header">
-              <span>站內通知</span>
-              <button type="button" class="btn-link" id="mark-all-read-btn">全部標為已讀</button>
+      <!-- 進行中計時器快捷列 -->
+      <div id="sidebar-timer-widget" class="sidebar-timer-widget hidden">
+        <div class="timer-widget-label">⏱️ 計時進行中</div>
+        <div id="sidebar-timer-task" class="timer-widget-task"></div>
+        <div id="sidebar-timer-clock" class="timer-widget-clock">00:00:00</div>
+        <div class="timer-widget-actions">
+          <button type="button" class="btn btn-primary btn-sm" id="sidebar-timer-stop-btn">停止並記錄</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 主內容區 -->
+    <div class="main-workspace">
+      <!-- 頂部工具列 -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button type="button" class="icon-btn mobile-only" id="open-sidebar-btn" title="開啟選單">☰</button>
+          <h2 id="view-title" class="view-title">看板檢視</h2>
+        </div>
+
+        <div class="topbar-right">
+          <button class="btn btn-primary btn-sm" id="new-task-btn">+ 新增任務</button>
+
+          <!-- 站內通知鈴鐺 -->
+          <div class="notif-wrapper">
+            <button class="icon-btn" id="notif-bell-btn" title="站內通知">
+              🔔
+              <span id="notif-badge" class="notif-badge hidden">0</span>
+            </button>
+            <div id="notif-dropdown" class="notif-dropdown hidden">
+              <div class="notif-header">
+                <span>站內通知</span>
+                <button type="button" class="btn-link" id="mark-all-read-btn">全部標為已讀</button>
+              </div>
+              <div id="notif-list" class="notif-list"></div>
             </div>
-            <div id="notif-list" class="notif-list"></div>
           </div>
-        </div>
 
-        <!-- 使用者選單 -->
-        <div class="user-menu-wrapper">
-          <button class="user-pill" id="user-menu-btn">
-            <span class="avatar-circle" id="user-avatar">A</span>
-            <span class="user-pill-info">
-              <strong id="user-display-name">管理員</strong>
-              <small id="user-role-dept">管理員 · 管理部</small>
-            </span>
-          </button>
-          <div id="user-dropdown" class="user-dropdown hidden">
-            <button type="button" id="open-change-pw-btn">🔑 修改我的密碼</button>
-            <button type="button" id="refresh-data-btn">🔄 重新同步資料</button>
-            <button type="button" id="logout-btn" class="danger-text">🚪 登出系統</button>
+          <!-- 使用者選單 -->
+          <div class="user-menu-wrapper">
+            <button class="user-pill" id="user-menu-btn">
+              <span class="avatar-circle" id="user-avatar">A</span>
+              <span class="user-pill-info">
+                <strong id="user-display-name">管理員</strong>
+                <small id="user-role-dept">管理員 · 管理部</small>
+              </span>
+            </button>
+            <div id="user-dropdown" class="user-dropdown hidden">
+              <button type="button" id="open-change-pw-btn">🔑 修改我的密碼</button>
+              <button type="button" id="refresh-data-btn">🔄 重新同步資料</button>
+              <button type="button" id="logout-btn" class="danger-text">🚪 登出系統</button>
+            </div>
           </div>
         </div>
-      </div>
-    </header>
+      </header>
 
     <!-- 篩選工具列 -->
     <section id="filter-bar" class="filter-bar">
@@ -148,6 +187,61 @@
           </thead>
           <tbody id="list-table-body"></tbody>
         </table>
+      </div>
+    </main>
+
+    <!-- 檢視區域：甘特圖 / 時間軸 -->
+    <main id="view-gantt" class="view-container hidden">
+      <div class="gantt-card">
+        <div class="gantt-toolbar">
+          <div class="gantt-legend">
+            <span class="legend-item"><i class="legend-dot status-todo"></i>待辦</span>
+            <span class="legend-item"><i class="legend-dot status-in_progress"></i>進行中</span>
+            <span class="legend-item"><i class="legend-dot status-review"></i>審核中</span>
+            <span class="legend-item"><i class="legend-dot status-done"></i>已完成</span>
+            <span class="legend-item"><i class="legend-dot status-overdue"></i>已逾期</span>
+            <span class="legend-item"><i class="legend-line"></i>前置相依線</span>
+          </div>
+          <div class="gantt-zoom">
+            <label for="gantt-zoom-select">尺度：</label>
+            <select id="gantt-zoom-select" class="filter-select">
+              <option value="day">每日</option>
+              <option value="week">每週</option>
+            </select>
+          </div>
+        </div>
+        <div id="gantt-container" class="gantt-container"></div>
+      </div>
+    </main>
+
+    <!-- 檢視區域：主管數據儀表板 -->
+    <main id="view-dashboard" class="view-container hidden">
+      <div class="dashboard-toolbar">
+        <div class="dashboard-filter-group">
+          <select id="dash-dept-filter" class="filter-select">
+            <option value="">所有部門</option>
+          </select>
+        </div>
+        <span class="filter-summary" id="dash-updated-hint">即時統計資料</span>
+      </div>
+      <div id="dashboard-kpis" class="kpi-grid"></div>
+      <div class="dashboard-charts-grid">
+        <div class="chart-card">
+          <h3>各成員工時分佈（已登錄 vs 預估）</h3>
+          <div id="chart-member-hours" class="chart-body"></div>
+        </div>
+        <div class="chart-card">
+          <h3>任務準時完成率與狀態分佈</h3>
+          <div id="chart-ontime-rate" class="chart-body"></div>
+        </div>
+        <div class="chart-card">
+          <h3>逾期任務統計與高風險項目</h3>
+          <div id="chart-overdue-stats" class="chart-body"></div>
+        </div>
+        <div class="chart-card">
+          <h3>部門工作量分析</h3>
+          <div id="chart-dept-workload" class="chart-body"></div>
+        </div>
       </div>
     </main>
 
@@ -216,11 +310,12 @@
         </div>
       </div>
     </main>
-  </div>
+    </div><!-- /.main-workspace -->
+  </div><!-- /#app-shell -->
 
-  <!-- 任務詳情 / 新增 / 編輯 Modal -->
-  <div id="task-modal" class="modal-overlay hidden">
-    <div class="modal-dialog modal-lg">
+  <!-- 任務詳情 / 新增 / 編輯 側邊抽屜 (Drawer) -->
+  <div id="task-modal" class="drawer-overlay hidden">
+    <div class="drawer-panel">
       <div class="modal-header">
         <h2 id="task-modal-title">新增任務</h2>
         <button type="button" class="icon-btn" id="close-task-modal">✕</button>
@@ -297,6 +392,13 @@
             </div>
           </div>
 
+          <div class="form-group">
+            <label for="task-predecessor-input">前置任務（甘特圖相依線）</label>
+            <select id="task-predecessor-input">
+              <option value="">無前置任務</option>
+            </select>
+          </div>
+
           <div class="modal-form-actions">
             <button type="button" class="btn btn-danger hidden" id="archive-task-btn">封存任務</button>
             <div style="flex:1"></div>
@@ -306,6 +408,32 @@
 
         <!-- 編輯既有任務時才顯示的協作區塊 -->
         <div id="task-collab-sections" class="task-collab-sections hidden">
+          <!-- 工時追蹤與計時器 -->
+          <div class="collab-box">
+            <div class="timelog-header">
+              <h4>⏱️ 工時追蹤與計時器</h4>
+              <span id="drawer-hours-summary" class="hours-summary-pill">已登錄 0 小時 / 預估 0 小時</span>
+            </div>
+            <div class="drawer-timer-bar">
+              <div class="timer-display">
+                <span class="timer-dot" id="drawer-timer-dot"></span>
+                <strong id="drawer-timer-clock">00:00:00</strong>
+              </div>
+              <div class="timer-actions">
+                <button type="button" class="btn btn-primary btn-sm" id="drawer-timer-start-btn">▶ 開始計時</button>
+                <button type="button" class="btn btn-secondary btn-sm hidden" id="drawer-timer-pause-btn">⏸ 暫停</button>
+                <button type="button" class="btn btn-danger btn-sm hidden" id="drawer-timer-stop-btn">⏹ 停止並記錄</button>
+              </div>
+            </div>
+            <div class="manual-time-row">
+              <input type="date" id="manual-time-date" title="工作日期" />
+              <input type="number" id="manual-time-hours" min="0.1" max="24" step="0.1" placeholder="補登時數 (hr)" />
+              <input type="text" id="manual-time-note" placeholder="工作內容備註..." />
+              <button type="button" class="btn btn-secondary btn-sm" id="add-manual-time-btn">補登工時</button>
+            </div>
+            <ul id="timelog-list" class="subtask-list"></ul>
+          </div>
+
           <!-- 子任務與核對清單 -->
           <div class="collab-box">
             <h4>子任務與核對清單 (Checklist)</h4>
