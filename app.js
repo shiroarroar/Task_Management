@@ -30,9 +30,23 @@ const ROLE_LABELS = {
   member: '一般成員'
 };
 
+const ALLOWED_FILE_EXTENSIONS = new Set([
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  'txt', 'csv', 'md', 'png', 'jpg', 'jpeg', 'gif', 'webp',
+  'zip', 'rar', '7z'
+]);
+
+const VALID_PRIORITIES = new Set(['urgent', 'high', 'medium', 'low']);
+
+function getStoredApiUrl() {
+  const saved = (localStorage.getItem(STORAGE_KEYS.API_URL) || '').trim();
+  if (saved && isValidGasUrl(saved)) return saved;
+  return DEFAULT_API_URL;
+}
+
 const state = {
-  apiUrl: localStorage.getItem(STORAGE_KEYS.API_URL) || DEFAULT_API_URL,
-  token: localStorage.getItem(STORAGE_KEYS.TOKEN) || '',
+  apiUrl: getStoredApiUrl(),
+  token: sessionStorage.getItem(STORAGE_KEYS.TOKEN) || '',
   currentUser: null,
   users: [],
   tasks: [],
@@ -51,6 +65,9 @@ async function callApi(action, payload = {}) {
   const url = state.apiUrl.trim();
   if (!url) {
     throw new Error('尚未設定 Google Apps Script API 網址');
+  }
+  if (!isValidGasUrl(url)) {
+    throw new Error('API 網址格式不合法，僅允許 https://script.google.com/macros/s/... 網址');
   }
   const res = await fetch(url, {
     method: 'POST',
@@ -95,6 +112,11 @@ function bindAuthEvents() {
 
   document.getElementById('save-api-url-btn').addEventListener('click', () => {
     const val = document.getElementById('api-url-input').value.trim();
+    if (!isValidGasUrl(val)) {
+      document.getElementById('api-status-text').textContent = '❌ 僅允許 https://script.google.com/macros/s/... 網址';
+      showToast('API 網址格式不合法', 'error');
+      return;
+    }
     state.apiUrl = val;
     localStorage.setItem(STORAGE_KEYS.API_URL, val);
     document.getElementById('api-status-text').textContent = '已儲存網址';
@@ -103,9 +125,14 @@ function bindAuthEvents() {
 
   document.getElementById('test-api-url-btn').addEventListener('click', async () => {
     const val = document.getElementById('api-url-input').value.trim();
+    const statusEl = document.getElementById('api-status-text');
+    if (!isValidGasUrl(val)) {
+      statusEl.textContent = '❌ 僅允許 https://script.google.com/macros/s/... 網址';
+      showToast('API 網址格式不合法', 'error');
+      return;
+    }
     state.apiUrl = val;
     localStorage.setItem(STORAGE_KEYS.API_URL, val);
-    const statusEl = document.getElementById('api-status-text');
     statusEl.textContent = '連線測試中...';
     try {
       const res = await callApi('ping');
@@ -125,7 +152,8 @@ function bindAuthEvents() {
       const password = document.getElementById('login-password').value;
       const res = await callApi('login', { username, password });
       state.token = res.token;
-      localStorage.setItem(STORAGE_KEYS.TOKEN, res.token);
+      sessionStorage.setItem(STORAGE_KEYS.TOKEN, res.token);
+      localStorage.removeItem(STORAGE_KEYS.TOKEN);
       await loadBootstrap();
     } catch (err) {
       showToast(err.message, 'error');
@@ -166,6 +194,7 @@ function bindAuthEvents() {
 function handleForceLogout() {
   state.token = '';
   state.currentUser = null;
+  sessionStorage.removeItem(STORAGE_KEYS.TOKEN);
   localStorage.removeItem(STORAGE_KEYS.TOKEN);
   document.getElementById('app-shell').classList.add('hidden');
   document.getElementById('login-screen').classList.remove('hidden');
@@ -251,7 +280,7 @@ function renderHeaderAndFilters() {
   const prevVal = assigneeFilter.value;
   assigneeFilter.innerHTML = '<option value="">所有負責人</option>' +
     state.users.filter(x => x.status === 'active')
-      .map(x => `<option value="${x.user_id}">${escapeHtml(x.display_name)} (${escapeHtml(x.department)})</option>`)
+      .map(x => `<option value="${escapeHtml(x.user_id)}">${escapeHtml(x.display_name)} (${escapeHtml(x.department)})</option>`)
       .join('');
   assigneeFilter.value = prevVal;
 }
@@ -269,9 +298,9 @@ function renderNotifications() {
     return;
   }
   listEl.innerHTML = state.notifications.map(n => `
-    <div class="notif-item ${n.is_read ? '' : 'unread'}" data-notif-id="${n.notif_id}" data-task-id="${n.task_id}">
+    <div class="notif-item ${n.is_read ? '' : 'unread'}" data-notif-id="${escapeHtml(n.notif_id)}" data-task-id="${escapeHtml(n.task_id)}">
       <div>${escapeHtml(n.message)}</div>
-      <small>${formatDateTime(n.created_at)}</small>
+      <small>${escapeHtml(formatDateTime(n.created_at))}</small>
     </div>
   `).join('');
 
@@ -375,9 +404,10 @@ function renderKanbanCard(t, today) {
   const attCount = state.attachments.filter(a => a.task_id === t.task_id).length;
   const cmtCount = state.comments.filter(c => c.task_id === t.task_id).length;
   const isOverdue = t.due_date && t.due_date < today && t.status !== 'done';
+  const priorityClass = VALID_PRIORITIES.has(t.priority) ? t.priority : 'medium';
 
   return `
-    <div class="task-card priority-${t.priority}" draggable="true" data-task-id="${t.task_id}">
+    <div class="task-card priority-${priorityClass}" draggable="true" data-task-id="${escapeHtml(t.task_id)}">
       <div class="card-tags">
         ${(t.tags || []).map(tag => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join('')}
         ${t.recurrence && t.recurrence !== 'none' ? `<span class="tag-chip">🔁 週期</span>` : ''}
@@ -385,7 +415,7 @@ function renderKanbanCard(t, today) {
       <div class="card-title">${escapeHtml(t.title)}</div>
       <div class="card-meta">
         <span>👤 ${escapeHtml(assignee)}</span>
-        ${t.due_date ? `<span class="${isOverdue ? 'due-overdue' : ''}">📅 ${t.due_date}</span>` : ''}
+        ${t.due_date ? `<span class="${isOverdue ? 'due-overdue' : ''}">📅 ${escapeHtml(t.due_date)}</span>` : ''}
       </div>
       <div class="card-meta" style="margin-top:6px;">
         <span>${subs.length ? `☑️ ${subDone}/${subs.length}` : ''}</span>
@@ -432,14 +462,14 @@ function renderListView(tasks) {
     const colLabel = (COLUMNS.find(c => c.key === t.status) || {}).label || t.status;
 
     return `
-      <tr data-task-id="${t.task_id}">
-        <td><input type="checkbox" class="list-done-cb" data-task-id="${t.task_id}" ${t.status === 'done' ? 'checked' : ''} /></td>
+      <tr data-task-id="${escapeHtml(t.task_id)}">
+        <td><input type="checkbox" class="list-done-cb" data-task-id="${escapeHtml(t.task_id)}" ${t.status === 'done' ? 'checked' : ''} /></td>
         <td><strong>${escapeHtml(t.title)}</strong></td>
-        <td>${colLabel}</td>
-        <td>${PRIORITY_LABELS[t.priority] || t.priority}</td>
+        <td>${escapeHtml(colLabel)}</td>
+        <td>${escapeHtml(PRIORITY_LABELS[t.priority] || t.priority)}</td>
         <td>${escapeHtml(getUserName(t.assignee_id))}</td>
         <td>${escapeHtml(t.department || '')}</td>
-        <td class="${isOverdue ? 'due-overdue' : ''}">${t.due_date || '-'}</td>
+        <td class="${isOverdue ? 'due-overdue' : ''}">${escapeHtml(t.due_date || '-')}</td>
         <td>${subs.length ? `${subDone}/${subs.length}` : '-'}</td>
       </tr>
     `;
@@ -542,6 +572,10 @@ function bindTaskModalEvents() {
     const name = document.getElementById('att-link-name').value.trim();
     const url = document.getElementById('att-link-url').value.trim();
     if (!name || !url || !state.editingTaskId) return;
+    if (!sanitizeUrl(url)) {
+      showToast('僅允許 http:// 或 https:// 開頭的外部連結', 'error');
+      return;
+    }
     try {
       const res = await callApi('addAttachmentLink', { task_id: state.editingTaskId, name, url });
       state.attachments.push(res.attachment);
@@ -558,6 +592,12 @@ function bindTaskModalEvents() {
   document.getElementById('upload-file-input').addEventListener('change', async e => {
     const file = e.target.files[0];
     if (!file || !state.editingTaskId) return;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (!ALLOWED_FILE_EXTENSIONS.has(ext)) {
+      showToast('不支援的檔案格式，僅允許常見文件、圖片或壓縮檔', 'error');
+      e.target.value = '';
+      return;
+    }
     if (file.size > 10 * 1024 * 1024) {
       showToast('單一檔案上限為 10 MB，較大檔案建議改貼雲端連結', 'error');
       e.target.value = '';
@@ -608,7 +648,7 @@ function openTaskModal(taskId) {
   state.editingTaskId = taskId;
   const assigneeSelect = document.getElementById('task-assignee-input');
   assigneeSelect.innerHTML = state.users.filter(u => u.status === 'active')
-    .map(u => `<option value="${u.user_id}">${escapeHtml(u.display_name)} (${escapeHtml(u.department)})</option>`)
+    .map(u => `<option value="${escapeHtml(u.user_id)}">${escapeHtml(u.display_name)} (${escapeHtml(u.department)})</option>`)
     .join('');
 
   const task = taskId ? state.tasks.find(t => t.task_id === taskId) : null;
@@ -640,10 +680,10 @@ function renderTaskCollabSections(taskId) {
   subEl.innerHTML = subs.map(s => `
     <li class="subtask-item">
       <label>
-        <input type="checkbox" class="sub-toggle-cb" data-sub-id="${s.subtask_id}" ${s.is_done ? 'checked' : ''} />
+        <input type="checkbox" class="sub-toggle-cb" data-sub-id="${escapeHtml(s.subtask_id)}" ${s.is_done ? 'checked' : ''} />
         <span class="${s.is_done ? 'subtask-done' : ''}">[${s.item_type === 'checklist' ? '核對' : '子任務'}] ${escapeHtml(s.title)}</span>
       </label>
-      <button type="button" class="btn-link danger-text sub-del-btn" data-sub-id="${s.subtask_id}">刪除</button>
+      <button type="button" class="btn-link danger-text sub-del-btn" data-sub-id="${escapeHtml(s.subtask_id)}">刪除</button>
     </li>
   `).join('');
 
@@ -669,14 +709,19 @@ function renderTaskCollabSections(taskId) {
   // 附件
   const atts = state.attachments.filter(a => a.task_id === taskId);
   const attEl = document.getElementById('attachment-list');
-  attEl.innerHTML = atts.map(a => `
-    <li class="attachment-item">
-      <a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">
-        ${a.source_type === 'drive' ? '📁 [Drive]' : '🔗 [連結]'} ${escapeHtml(a.name)}
-      </a>
-      <button type="button" class="btn-link danger-text att-del-btn" data-att-id="${a.attachment_id}">移除</button>
-    </li>
-  `).join('');
+  attEl.innerHTML = atts.map(a => {
+    const safeUrl = sanitizeUrl(a.url);
+    const label = `${a.source_type === 'drive' ? '📁 [Drive]' : '🔗 [連結]'} ${escapeHtml(a.name)}`;
+    const linkHtml = safeUrl
+      ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${label}</a>`
+      : `<span>${label} (無效連結)</span>`;
+    return `
+      <li class="attachment-item">
+        ${linkHtml}
+        <button type="button" class="btn-link danger-text att-del-btn" data-att-id="${escapeHtml(a.attachment_id)}">移除</button>
+      </li>
+    `;
+  }).join('');
 
   attEl.querySelectorAll('.att-del-btn').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -705,7 +750,7 @@ function renderTaskCollabSections(taskId) {
     <div class="comment-item">
       <div class="comment-meta">
         <strong>${escapeHtml(getUserName(c.author_id))}</strong>
-        <span>${formatDateTime(c.created_at)}</span>
+        <span>${escapeHtml(formatDateTime(c.created_at))}</span>
       </div>
       <div>${escapeHtml(c.content)}</div>
     </div>
@@ -736,6 +781,27 @@ function bindAdminEvents() {
       showToast(err.message, 'error');
     }
   });
+  document.getElementById('close-reset-pw-modal').addEventListener('click', () => {
+    document.getElementById('reset-pw-modal').classList.add('hidden');
+  });
+
+  document.getElementById('admin-reset-pw-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const uid = document.getElementById('reset-pw-uid').value;
+    const pw = document.getElementById('admin-reset-pw-input').value;
+    if (!uid || pw.length < 6) {
+      showToast('新密碼至少需 6 碼', 'error');
+      return;
+    }
+    try {
+      await callApi('adminResetPassword', { user_id: uid, new_password: pw });
+      e.target.reset();
+      document.getElementById('reset-pw-modal').classList.add('hidden');
+      showToast('已重設密碼', 'success');
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
 }
 
 function renderAdminUsers() {
@@ -744,16 +810,16 @@ function renderAdminUsers() {
     <tr>
       <td>${escapeHtml(u.username)}</td>
       <td>${escapeHtml(u.display_name)}</td>
-      <td>${ROLE_LABELS[u.role] || u.role}</td>
+      <td>${escapeHtml(ROLE_LABELS[u.role] || u.role)}</td>
       <td>${escapeHtml(u.department)}</td>
       <td>${escapeHtml(u.email || '-')}</td>
       <td>${u.status === 'active' ? '✅ 啟用' : '⛔ 停用'}</td>
       <td>
-        <button type="button" class="btn-link toggle-user-btn" data-uid="${u.user_id}" data-status="${u.status}">
+        <button type="button" class="btn-link toggle-user-btn" data-uid="${escapeHtml(u.user_id)}" data-status="${escapeHtml(u.status)}">
           ${u.status === 'active' ? '停用' : '啟用'}
         </button>
         ·
-        <button type="button" class="btn-link reset-pw-btn" data-uid="${u.user_id}">重設密碼</button>
+        <button type="button" class="btn-link reset-pw-btn" data-uid="${escapeHtml(u.user_id)}">重設密碼</button>
       </td>
     </tr>
   `).join('');
@@ -769,15 +835,10 @@ function renderAdminUsers() {
   });
 
   tbody.querySelectorAll('.reset-pw-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const pw = prompt('請輸入新密碼（至少 6 碼）：');
-      if (!pw) return;
-      try {
-        await callApi('adminResetPassword', { user_id: btn.dataset.uid, new_password: pw });
-        showToast('已重設密碼', 'success');
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
+    btn.addEventListener('click', () => {
+      document.getElementById('reset-pw-uid').value = btn.dataset.uid;
+      document.getElementById('admin-reset-pw-input').value = '';
+      document.getElementById('reset-pw-modal').classList.remove('hidden');
     });
   });
 }
@@ -796,12 +857,36 @@ function formatDateTime(iso) {
   return isNaN(d.getTime()) ? iso : d.toLocaleString('zh-TW', { hour12: false });
 }
 
+function isValidGasUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    return parsed.protocol === 'https:' &&
+      parsed.hostname === 'script.google.com' &&
+      parsed.pathname.includes('/macros/s/');
+  } catch (_) {
+    return false;
+  }
+}
+
+function sanitizeUrl(url) {
+  try {
+    const parsed = new URL(String(url || '').trim());
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.href;
+    }
+    return '';
+  } catch (_) {
+    return '';
+  }
+}
+
 function escapeHtml(str) {
   return String(str || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function showToast(msg, type = '') {

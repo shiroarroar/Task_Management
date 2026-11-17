@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; base-uri 'self'; form-action 'self';" />
   <title>TaskFlow 團隊任務管理系統</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -163,7 +164,7 @@
               </div>
               <div class="form-group">
                 <label>初始密碼 *</label>
-                <input type="password" id="new-user-password" required placeholder="至少 6 碼" />
+                <input type="password" id="new-user-password" required minlength="6" placeholder="至少 6 碼" />
               </div>
             </div>
             <div class="form-row">
@@ -325,7 +326,7 @@
             <div class="attachment-controls">
               <label class="btn btn-outline btn-sm file-upload-label">
                 📎 上傳檔案至 Drive
-                <input type="file" id="upload-file-input" hidden />
+                <input type="file" id="upload-file-input" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.md,.png,.jpg,.jpeg,.gif,.webp,.zip,.rar,.7z" hidden />
               </label>
               <div class="inline-add-row" style="flex:1;">
                 <input type="text" id="att-link-name" placeholder="連結名稱" />
@@ -369,6 +370,26 @@
             <input type="password" id="new-pw-input" required minlength="6" />
           </div>
           <button type="submit" class="btn btn-primary btn-block">確認修改</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 管理員重設密碼 Modal -->
+  <div id="reset-pw-modal" class="modal-overlay hidden">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h2>重設使用者密碼</h2>
+        <button type="button" class="icon-btn" id="close-reset-pw-modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="admin-reset-pw-form" class="task-form">
+          <input type="hidden" id="reset-pw-uid" />
+          <div class="form-group">
+            <label for="admin-reset-pw-input">新密碼（至少 6 碼）</label>
+            <input type="password" id="admin-reset-pw-input" required minlength="6" autocomplete="new-password" />
+          </div>
+          <button type="submit" class="btn btn-primary btn-block">確認重設</button>
         </form>
       </div>
     </div>
