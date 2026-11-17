@@ -3,7 +3,7 @@
  */
 
 // 可直接在此填入部署後的 Google Apps Script Web App 網址，或在登入畫面的「設定」中輸入
-const DEFAULT_API_URL = '';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycby0mqrrB5emC0J1ehg7HNQZHXKacUvLD2fAliPYjlCESApO-OzILD3ehjRneiw_UD-B/exec';
 
 const STORAGE_KEYS = {
   API_URL: 'taskflow_gas_api_url',
