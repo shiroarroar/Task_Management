@@ -615,24 +615,26 @@ input:focus, select:focus, textarea:focus {
 .assignee-picker {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface-alt);
-  max-height: 120px;
+  min-height: 46px;
+  max-height: 160px;
   overflow-y: auto;
 }
 .assignee-option {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
+  gap: 6px;
+  padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
   user-select: none;
 }
