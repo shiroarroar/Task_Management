@@ -173,7 +173,8 @@ function bindAuthEvents() {
     statusEl.textContent = '連線測試中...';
     try {
       const res = await callApi('ping');
-      statusEl.textContent = `✅ ${res.message}`;
+      const verText = res.api_version ? ` (後端 v${res.api_version})` : ' (⚠️ 舊版後端，請於 GAS 建立新版本部署)';
+      statusEl.textContent = `✅ ${res.message}${verText}`;
     } catch (err) {
       statusEl.textContent = `❌ ${err.message}`;
     }
@@ -317,8 +318,11 @@ async function checkForUpdates() {
     if (res.data_version && String(res.data_version) !== state.dataVersion) {
       await silentSyncBootstrap();
     }
-  } catch (_) {
-    // 背景輪詢失敗時靜默忽略，避免網路波動造成頻繁跳錯
+  } catch (err) {
+    if (err && String(err.message).includes('未知的操作指令')) {
+      stopAutoSync();
+      showToast('GAS 後端尚未更新部署版本，自動同步已暫停（請在 Apps Script 建立新版本並部署）', 'error');
+    }
   } finally {
     state.isSyncing = false;
   }

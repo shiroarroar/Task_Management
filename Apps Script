@@ -152,7 +152,7 @@ function doPost(e) {
       return jsonResponse(handleLogin(payload));
     }
     if (action === 'ping') {
-      return jsonResponse({ ok: true, message: '連線成功', timestamp: nowIso() });
+      return jsonResponse({ ok: true, message: '連線成功', api_version: '2.2', timestamp: nowIso() });
     }
 
     // 其餘操作皆需驗證 Token
@@ -388,6 +388,7 @@ function handleGetBootstrap(user) {
 
   return {
     ok: true,
+    api_version: '2.2',
     data_version: getDataVersion(),
     currentUser: user,
     users: allUsers,
