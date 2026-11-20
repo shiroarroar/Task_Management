@@ -48,6 +48,7 @@ const ALLOWED_FILE_EXTENSIONS = new Set([
 ]);
 
 const VALID_PRIORITIES = new Set(['urgent', 'high', 'medium', 'low']);
+const SYNC_INTERVAL_MS = 8000;
 
 function getStoredApiUrl() {
   const saved = (localStorage.getItem(STORAGE_KEYS.API_URL) || '').trim();
@@ -70,7 +71,10 @@ const state = {
   ganttZoom: 'day',
   editingTaskId: null,
   timer: loadSavedTimer(),
-  timerInterval: null
+  timerInterval: null,
+  dataVersion: '',
+  syncTimerId: null,
+  isSyncing: false
 };
 
 // ============================================================================
@@ -100,6 +104,9 @@ async function callApi(action, payload = {}) {
     }
     throw new Error(data.error || '操作失敗');
   }
+  if (action !== 'checkUpdates' && action !== 'getBootstrap' && data.data_version) {
+    state.dataVersion = String(data.data_version);
+  }
   return data;
 }
 
@@ -122,6 +129,17 @@ document.addEventListener('DOMContentLoaded', () => {
   if (state.token && state.apiUrl) {
     loadBootstrap();
   }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && state.token && state.currentUser) {
+      checkForUpdates();
+    }
+  });
+  window.addEventListener('focus', () => {
+    if (state.token && state.currentUser) {
+      checkForUpdates();
+    }
+  });
 });
 
 function bindAuthEvents() {
@@ -219,12 +237,35 @@ function bindAuthEvents() {
 }
 
 function handleForceLogout() {
+  stopAutoSync();
   state.token = '';
   state.currentUser = null;
+  state.dataVersion = '';
   sessionStorage.removeItem(STORAGE_KEYS.TOKEN);
   localStorage.removeItem(STORAGE_KEYS.TOKEN);
   document.getElementById('app-shell').classList.add('hidden');
   document.getElementById('login-screen').classList.remove('hidden');
+}
+
+function applyBootstrapData(data) {
+  const prevUnread = state.notifications.filter(n => !n.is_read).length;
+  state.currentUser = data.currentUser;
+  state.users = data.users || [];
+  const predCache = loadJsonStorage(localStorage, STORAGE_KEYS.PREDECESSORS_CACHE, {});
+  state.tasks = (data.tasks || []).map(t => ({
+    ...t,
+    predecessor_id: t.predecessor_id || predCache[t.task_id] || ''
+  }));
+  state.subtasks = data.subtasks || [];
+  state.attachments = data.attachments || [];
+  state.comments = data.comments || [];
+  state.notifications = data.notifications || [];
+  state.timeLogs = data.timeLogs || loadJsonStorage(localStorage, STORAGE_KEYS.TIME_LOGS_CACHE, []);
+  if (data.data_version) {
+    state.dataVersion = String(data.data_version);
+  }
+  const nextUnread = state.notifications.filter(n => !n.is_read).length;
+  return nextUnread > prevUnread;
 }
 
 async function loadBootstrap() {
@@ -238,18 +279,7 @@ async function loadBootstrap() {
       handleForceLogout();
       throw new Error('無法取得有效的使用者資訊，請重新登入');
     }
-    state.currentUser = data.currentUser;
-    state.users = data.users || [];
-    const predCache = loadJsonStorage(localStorage, STORAGE_KEYS.PREDECESSORS_CACHE, {});
-    state.tasks = (data.tasks || []).map(t => ({
-      ...t,
-      predecessor_id: t.predecessor_id || predCache[t.task_id] || ''
-    }));
-    state.subtasks = data.subtasks || [];
-    state.attachments = data.attachments || [];
-    state.comments = data.comments || [];
-    state.notifications = data.notifications || [];
-    state.timeLogs = data.timeLogs || loadJsonStorage(localStorage, STORAGE_KEYS.TIME_LOGS_CACHE, []);
+    applyBootstrapData(data);
 
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('app-shell').classList.remove('hidden');
@@ -257,8 +287,61 @@ async function loadBootstrap() {
     renderActiveView();
     renderNotifications();
     updateTimerDisplays();
+    startAutoSync();
   } catch (err) {
     showToast(err.message, 'error');
+  }
+}
+
+function startAutoSync() {
+  stopAutoSync();
+  state.syncTimerId = setInterval(() => {
+    checkForUpdates();
+  }, SYNC_INTERVAL_MS);
+}
+
+function stopAutoSync() {
+  if (state.syncTimerId) {
+    clearInterval(state.syncTimerId);
+    state.syncTimerId = null;
+  }
+}
+
+async function checkForUpdates() {
+  if (!state.token || !state.currentUser || state.isSyncing) return;
+  if (document.visibilityState === 'hidden') return;
+
+  state.isSyncing = true;
+  try {
+    const res = await callApi('checkUpdates');
+    if (res.data_version && String(res.data_version) !== state.dataVersion) {
+      await silentSyncBootstrap();
+    }
+  } catch (_) {
+    // 背景輪詢失敗時靜默忽略，避免網路波動造成頻繁跳錯
+  } finally {
+    state.isSyncing = false;
+  }
+}
+
+async function silentSyncBootstrap() {
+  const data = await callApi('getBootstrap');
+  if (!data || !data.currentUser || !data.currentUser.user_id) return;
+
+  const hasNewNotif = applyBootstrapData(data);
+  renderHeaderAndFilters();
+  renderActiveView();
+  renderNotifications();
+  updateTimerDisplays();
+
+  // 若任務詳情抽屜正開啟，僅局部刷新協作區塊（留言/子任務/附件/工時），不覆蓋正在編輯的表單欄位
+  const drawerOpen = !document.getElementById('task-modal').classList.contains('hidden');
+  if (drawerOpen && state.editingTaskId) {
+    renderTaskCollabSections(state.editingTaskId);
+  }
+
+  if (hasNewNotif) {
+    showToast('收到新的任務或討論更新');
   }
 }
 
@@ -401,8 +484,9 @@ function getFilteredTasks() {
 
   return state.tasks.filter(t => {
     if (priority && t.priority !== priority) return false;
-    if (assignee && t.assignee_id !== assignee) return false;
-    if (onlyMine && t.assignee_id !== state.currentUser.user_id) return false;
+    const assignees = getTaskAssigneeIds(t);
+    if (assignee && !assignees.includes(assignee)) return false;
+    if (onlyMine && !assignees.includes(state.currentUser.user_id)) return false;
     if (q) {
       const hay = `${t.title} ${t.description} ${(t.tags || []).join(' ')}`.toLowerCase();
       if (!hay.includes(q)) return false;
@@ -488,7 +572,7 @@ function renderKanban(tasks) {
 }
 
 function renderKanbanCard(t, today) {
-  const assignee = getUserName(t.assignee_id);
+  const assignee = getTaskAssigneeNames(t);
   const subs = state.subtasks.filter(s => s.task_id === t.task_id);
   const subDone = subs.filter(s => s.is_done).length;
   const attCount = state.attachments.filter(a => a.task_id === t.task_id).length;
@@ -565,7 +649,7 @@ function renderListView(tasks) {
         <td><strong>${escapeHtml(t.title)}</strong></td>
         <td>${escapeHtml(colLabel)}</td>
         <td>${escapeHtml(PRIORITY_LABELS[t.priority] || t.priority)}</td>
-        <td>${escapeHtml(getUserName(t.assignee_id))}</td>
+        <td>${escapeHtml(getTaskAssigneeNames(t))}</td>
         <td>${escapeHtml(t.department || '')}</td>
         <td class="${isOverdue ? 'due-overdue' : ''}">${escapeHtml(t.due_date || '-')}</td>
         <td>${subs.length ? `${subDone}/${subs.length}` : '-'}</td>
@@ -605,12 +689,16 @@ function bindTaskModalEvents() {
     saveBtn.disabled = true;
     try {
       const predecessorId = document.getElementById('task-predecessor-input').value;
+      const assigneeIds = Array.from(document.querySelectorAll('input[name="task-assignee-cb"]:checked'))
+        .map(cb => cb.value)
+        .filter(Boolean);
       const payload = {
         title: document.getElementById('task-title-input').value.trim(),
         description: document.getElementById('task-desc-input').value.trim(),
         status: document.getElementById('task-status-input').value,
         priority: document.getElementById('task-priority-input').value,
-        assignee_id: document.getElementById('task-assignee-input').value,
+        assignee_ids: assigneeIds,
+        assignee_id: assigneeIds[0] || '',
         department: document.getElementById('task-dept-input').value.trim(),
         start_date: document.getElementById('task-start-input').value,
         due_date: document.getElementById('task-due-input').value,
@@ -777,19 +865,23 @@ function bindTaskModalEvents() {
 
 function openTaskModal(taskId) {
   state.editingTaskId = taskId;
-  const assigneeSelect = document.getElementById('task-assignee-input');
-  assigneeSelect.innerHTML = state.users.filter(u => u.status === 'active')
-    .map(u => `<option value="${escapeHtml(u.user_id)}">${escapeHtml(u.display_name)} (${escapeHtml(u.department)})</option>`)
-    .join('');
-
   const task = taskId ? state.tasks.find(t => t.task_id === taskId) : null;
+  const selectedAssignees = new Set(task ? getTaskAssigneeIds(task) : [state.currentUser.user_id]);
+  const assigneeListEl = document.getElementById('task-assignee-list');
+  assigneeListEl.innerHTML = state.users.filter(u => u.status === 'active')
+    .map(u => `
+      <label class="assignee-option">
+        <input type="checkbox" name="task-assignee-cb" value="${escapeHtml(u.user_id)}" ${selectedAssignees.has(u.user_id) ? 'checked' : ''} />
+        <span>${escapeHtml(u.display_name)} (${escapeHtml(u.department)})</span>
+      </label>
+    `).join('');
+
   document.getElementById('task-modal-title').textContent = task ? '編輯任務' : '新增任務';
   document.getElementById('task-id-input').value = task ? task.task_id : '';
   document.getElementById('task-title-input').value = task ? task.title : '';
   document.getElementById('task-desc-input').value = task ? task.description : '';
   document.getElementById('task-status-input').value = task ? task.status : 'todo';
   document.getElementById('task-priority-input').value = task ? task.priority : 'medium';
-  assigneeSelect.value = task ? task.assignee_id : state.currentUser.user_id;
   document.getElementById('task-dept-input').value = task ? task.department : state.currentUser.department;
   document.getElementById('task-start-input').value = task ? (task.start_date || '') : '';
   document.getElementById('task-due-input').value = task ? (task.due_date || '') : '';
@@ -1020,6 +1112,30 @@ function getUserName(uid) {
   return u ? u.display_name : '未指派';
 }
 
+function getTaskAssigneeIds(task) {
+  if (!task) return [];
+  if (Array.isArray(task.assignee_ids)) {
+    return task.assignee_ids.filter(Boolean);
+  }
+  const raw = task.assignee_id;
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  const str = String(raw || '').trim();
+  if (!str) return [];
+  if (str.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) return parsed.map(x => String(x || '').trim()).filter(Boolean);
+    } catch (_) {}
+  }
+  return str.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function getTaskAssigneeNames(task) {
+  const ids = getTaskAssigneeIds(task);
+  if (!ids.length) return '未指派';
+  return ids.map(id => getUserName(id)).join(', ');
+}
+
 function formatDateTime(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -1119,7 +1235,7 @@ function renderGantt(tasks) {
       <div class="gantt-row" data-gantt-task-id="${escapeHtml(t.task_id)}">
         <div class="gantt-label-col">
           <div class="gantt-label-title" title="${escapeHtml(t.title)}">${escapeHtml(t.title)}</div>
-          <div class="gantt-label-meta">${escapeHtml(getUserName(t.assignee_id))} · ${escapeHtml(t.start_date || '-')} ~ ${escapeHtml(t.due_date || '-')}</div>
+          <div class="gantt-label-meta">${escapeHtml(getTaskAssigneeNames(t))} · ${escapeHtml(t.start_date || '-')} ~ ${escapeHtml(t.due_date || '-')}</div>
         </div>
         <div class="gantt-timeline-col">
           <div class="gantt-tick-cells">
@@ -1239,11 +1355,15 @@ function renderDashboard() {
     memberHoursMap.set(u.user_id, { name: u.display_name, logged: 0, est: 0 });
   });
   tasks.forEach(t => {
-    if (!t.assignee_id) return;
-    if (!memberHoursMap.has(t.assignee_id)) {
-      memberHoursMap.set(t.assignee_id, { name: getUserName(t.assignee_id), logged: 0, est: 0 });
-    }
-    memberHoursMap.get(t.assignee_id).est += Number(t.estimated_hours || 0);
+    const assignees = getTaskAssigneeIds(t);
+    if (!assignees.length) return;
+    const shareEst = Number(t.estimated_hours || 0) / assignees.length;
+    assignees.forEach(uid => {
+      if (!memberHoursMap.has(uid)) {
+        memberHoursMap.set(uid, { name: getUserName(uid), logged: 0, est: 0 });
+      }
+      memberHoursMap.get(uid).est += shareEst;
+    });
   });
   logs.forEach(l => {
     if (!memberHoursMap.has(l.user_id)) {
@@ -1322,7 +1442,7 @@ function renderDashboard() {
     `).join('')}
     ${overdueActive.slice(0, 3).map(t => `
       <div style="font-size:12px;color:var(--danger);margin-top:4px;">
-        ⚠️ ${escapeHtml(t.title)}（${escapeHtml(getUserName(t.assignee_id))} · 截止 ${escapeHtml(t.due_date)}）
+        ⚠️ ${escapeHtml(t.title)}（${escapeHtml(getTaskAssigneeNames(t))} · 截止 ${escapeHtml(t.due_date)}）
       </div>
     `).join('')}
   `;
